@@ -1,0 +1,5 @@
+Another document for testing.
+Count words carefully.
+You should see results.
+This is important for demonstration.
+Word statistics project.
