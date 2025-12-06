@@ -15,6 +15,7 @@ import java.util.stream.*;
 public class FileDiscoverer {
     
     // Supported text file extensions
+    // FIX: Added explicit list. Only files with these extensions will be processed.
     private static final List<String> TEXT_FILE_EXTENSIONS = Arrays.asList(
         ".txt", ".text", ".md", ".java", ".c", ".cpp", ".h", ".py", 
         ".js", ".html", ".css", ".xml", ".json", ".csv"
@@ -22,11 +23,21 @@ public class FileDiscoverer {
     
     /**
      * Finds all text files in a directory (including subdirectories)
-     * 
-     * @param directoryPath The path to the directory to search
+     * * @param directoryPath The path to the directory to search
      * @return List of Path objects for all found text files
      */
     public List<Path> findTextFiles(String directoryPath) {
+        // Default to recursive search if not specified
+        return findTextFiles(directoryPath, true);
+    }
+    
+    /**
+     * Overloaded method to match the StatisticsManager interface
+     * * @param directoryPath The path to the directory to search
+     * @param includeSubdirs Whether to search subdirectories recursively
+     * @return List of Path objects for all found text files
+     */
+    public List<Path> findTextFiles(String directoryPath, boolean includeSubdirs) {
         List<Path> textFiles = new ArrayList<>();
         
         if (directoryPath == null || directoryPath.trim().isEmpty()) {
@@ -41,11 +52,14 @@ public class FileDiscoverer {
         }
         
         try {
-            // Use Java's Files.walk to traverse directory tree
-            try (Stream<Path> paths = Files.walk(dirPath)) {
+            // Determine depth: Integer.MAX_VALUE for recursive, 1 for current directory only
+            int maxDepth = includeSubdirs ? Integer.MAX_VALUE : 1;
+
+            // Use Java's Files.walk with depth control
+            try (Stream<Path> paths = Files.walk(dirPath, maxDepth)) {
                 paths
                     .filter(Files::isRegularFile)          // Only regular files
-                    .filter(this::isTextFile)              // Only text files
+                    .filter(this::isTextFile)              // Only allowed text extensions
                     .forEach(textFiles::add);              // Add to list
             }
             
@@ -59,23 +73,11 @@ public class FileDiscoverer {
     }
     
     /**
-     * Overloaded method to match the StatisticsManager interface
-     * This method is called by StatisticsManager
-     * 
-     * @param directoryPath The path to the directory to search
-     * @param includeSubdirs Whether to include subdirectories (ignored - always true)
-     * @return List of Path objects for all found text files
-     */
-    public List<Path> findTextFiles(String directoryPath, boolean includeSubdirs) {
-        // For now, we'll always include subdirectories
-        // You can modify this later to respect the includeSubdirs parameter
-        System.out.println("Searching directory: " + directoryPath + 
-                         " (include subdirs: " + includeSubdirs + ")");
-        return findTextFiles(directoryPath);
-    }
-    
-    /**
-     * Checks if a file is a text file based on its extension
+     * Checks if a file is a text file based STRICTLY on its extension.
+     * * FIX APPLIED: Removed the 'isLikelyTextFile' fallback check. 
+     * Previous version analyzed file content, which caused PDF files 
+     * to be mistakenly identified as text files. Now, if the extension 
+     * isn't in the allowed list, the file is rejected immediately.
      */
     private boolean isTextFile(Path filePath) {
         String fileName = filePath.getFileName().toString().toLowerCase();
@@ -87,38 +89,8 @@ public class FileDiscoverer {
             }
         }
         
-        // Additional check: try to read first few bytes to detect binary files
-        return isLikelyTextFile(filePath);
-    }
-    
-    /**
-     * Attempts to determine if a file is text-based by reading first few bytes
-     * This is a simple heuristic and not 100% accurate
-     */
-    private boolean isLikelyTextFile(Path filePath) {
-        try {
-            // Read first 1024 bytes
-            byte[] buffer = new byte[1024];
-            int bytesRead = Files.newInputStream(filePath).read(buffer);
-            
-            if (bytesRead <= 0) {
-                return false; // Empty file
-            }
-            
-            // Check for non-text characters
-            for (int i = 0; i < bytesRead; i++) {
-                byte b = buffer[i];
-                // If byte is 0 (null character) or certain control characters, likely binary
-                if (b == 0 || (b < 32 && b != 9 && b != 10 && b != 13)) {
-                    return false;
-                }
-            }
-            
-            return true;
-            
-        } catch (IOException e) {
-            return false; // If we can't read it, skip it
-        }
+        // Strict Mode: If extension doesn't match, it is NOT a text file.
+        return false;
     }
     
     /**
@@ -134,10 +106,10 @@ public class FileDiscoverer {
     public List<String> getTextFileNames(String directoryPath) {
         List<Path> files = findTextFiles(directoryPath);
         return files.stream()
-                   .map(path -> path.getFileName().toString())
-                   .collect(Collectors.toList());
+                    .map(path -> path.getFileName().toString())
+                    .collect(Collectors.toList());
     }
-    
+
     /**
      * Test method to verify file discovery
      */

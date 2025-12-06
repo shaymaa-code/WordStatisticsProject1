@@ -11,49 +11,46 @@ import threading.ProcessingTask;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletionService; // Added for the efficient solution
+import java.util.concurrent.ExecutorCompletionService; // Added for the efficient solution
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;// Added for the efficient solution
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 
 /**
  * Manages multithreaded processing of files and coordinates between components
  * This is the brain of the application
+ * UPDATED: Uses ExecutorCompletionService to avoid creating unnecessary threads.
  */
 public class StatisticsManager {
     
     private ExecutorService executorService;
+    // New field for handling results efficiently
+    private CompletionService<FileStats> completionService;
+    
     private FileDiscoverer fileDiscoverer;
     private FileProcessor fileProcessor;
     private GlobalStats globalStats;
     private ProgressListener progressListener;
     
     private volatile boolean isProcessing;
-    private AtomicInteger filesProcessed;
     
-    /**
-     * Constructor
-     */
     public StatisticsManager() {
         this.fileDiscoverer = new FileDiscoverer();
         this.fileProcessor = new FileProcessor();
         this.globalStats = new GlobalStats();
-        this.filesProcessed = new AtomicInteger(0);
         this.isProcessing = false;
     }
     
-    /**
-     * Set the progress listener for real-time updates
-     */
     public void setProgressListener(ProgressListener listener) {
         this.progressListener = listener;
     }
     
     /**
      * Start processing files in a directory
-     * @param directoryPath Path to the directory
-     * @param includeSubdirs Whether to include subdirectories
      */
     public void processDirectory(String directoryPath, boolean includeSubdirs) {
         if (isProcessing) {
@@ -61,48 +58,82 @@ public class StatisticsManager {
             return;
         }
         
-        // Reset for new processing
+        // Reset state
         globalStats.reset();
-        filesProcessed.set(0);
         isProcessing = true;
         
-        // Create thread pool based on available processors
+        // 1. Initialize Thread Pool
         int availableProcessors = Runtime.getRuntime().availableProcessors();
         executorService = Executors.newFixedThreadPool(availableProcessors);
         
-        // Find all text files (FileDiscoverer always includes subdirectories)
-        List<Path> textFiles = fileDiscoverer.findTextFiles(directoryPath);
+        // 2. Initialize CompletionService
+        // This acts as a queue for finished tasks so we don't need to wait for them one by one
+        completionService = new ExecutorCompletionService<>(executorService);
+        
+        // 3. Find Files
+        List<Path> textFiles = fileDiscoverer.findTextFiles(directoryPath, includeSubdirs);
         
         if (textFiles.isEmpty()) {
-            notifyError("No text files found", "No text files found in the selected directory");
+            notifyError("No Files", "No text files found in the selected directory");
             isProcessing = false;
+            executorService.shutdown();
             return;
         }
         
-        // Notify that processing has started
         notifyProcessingStarted(textFiles.size());
+        System.out.println("Found " + textFiles.size() + " files. Using " + availableProcessors + " threads.");
         
-        System.out.println("Found " + textFiles.size() + " text files to process");
-        System.out.println("Using " + availableProcessors + " threads");
-        
-        // Submit all files for processing
+        // 4. Submit Tasks
         for (Path filePath : textFiles) {
+            // ProcessingTask must implement Callable<FileStats>
             ProcessingTask task = new ProcessingTask(filePath, fileProcessor);
-            Future<FileStats> future = executorService.submit(task);
-            
-            // Handle results as they complete
-            handleFutureResult(future, textFiles.size());
+            completionService.submit(task);
         }
         
-        // Shutdown executor and wait for completion
+        // We can shutdown the executor immediately (it will still finish submitted tasks)
         executorService.shutdown();
         
-        // Wait for all tasks to complete in a separate thread
+        // 5. Start Single Result Consumer
+        // Instead of creating a thread per file, we create ONE thread to handle ALL results
+        startResultConsumer(textFiles.size());
+    }
+    
+    /**
+     * Efficiently consumes results on a SINGLE thread as they complete.
+     */
+    private void startResultConsumer(int totalFiles) {
         new Thread(() -> {
+            int processedCount = 0;
+            
             try {
-                executorService.awaitTermination(Long.MAX_VALUE, java.util.concurrent.TimeUnit.NANOSECONDS);
+                for (int i = 0; i < totalFiles; i++) {
+                    // .take() blocks until the NEXT task is finished
+                    // This is much more efficient than checking futures in a loop
+                    Future<FileStats> future = completionService.take();
+                    
+                    try {
+                        FileStats stats = future.get();
+                        
+                        // Update Shared Data
+                        globalStats.addFileStats(stats);
+                        processedCount++;
+                        
+                        // Update GUI
+                        int currentCount = processedCount;
+                        SwingUtilities.invokeLater(() -> {
+                            if (progressListener != null) {
+                                progressListener.onFileProcessed(stats, currentCount, totalFiles);
+                                int progress = (int) ((currentCount / (double) totalFiles) * 100);
+                                progressListener.onProgressUpdate(progress);
+                            }
+                        });
+                        
+                    } catch (ExecutionException e) {
+                        System.err.println("Task execution failed: " + e.getMessage());
+                    }
+                }
                 
-                // All tasks completed
+                // All tasks finished
                 SwingUtilities.invokeLater(() -> {
                     isProcessing = false;
                     if (progressListener != null) {
@@ -112,91 +143,35 @@ public class StatisticsManager {
                 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                notifyError("Processing interrupted", e.getMessage());
+                notifyError("Interrupted", "Processing was interrupted.");
             }
         }).start();
     }
     
-    /**
-     * Handle the result of a Future (when a file processing completes)
-     */
-    private void handleFutureResult(Future<FileStats> future, int totalFiles) {
-        new Thread(() -> {
-            try {
-                // Get the result (this blocks until the task completes)
-                FileStats fileStats = future.get();
-                
-                // Update global statistics
-                globalStats.addFileStats(fileStats);
-                
-                // Increment processed count
-                int processedCount = filesProcessed.incrementAndGet();
-                
-                // Calculate progress percentage
-                int progress = (int) ((processedCount / (double) totalFiles) * 100);
-                
-                // Notify GUI with the result
-                SwingUtilities.invokeLater(() -> {
-                    if (progressListener != null) {
-                        progressListener.onFileProcessed(fileStats, processedCount, totalFiles);
-                        progressListener.onProgressUpdate(progress);
-                    }
-                });
-                
-                System.out.println("Processed " + processedCount + "/" + totalFiles + 
-                                 " files: " + fileStats.getFileName());
-                
-            } catch (Exception e) {
-                System.err.println("Error getting result from future: " + e.getMessage());
-                notifyError("Processing error", e.getMessage());
-            }
-        }).start();
-    }
-    
-    /**
-     * Stop processing (if needed)
-     */
     public void stopProcessing() {
         if (executorService != null && !executorService.isShutdown()) {
             executorService.shutdownNow();
             isProcessing = false;
-            System.out.println("Processing stopped by user");
         }
     }
     
-    /**
-     * Check if currently processing
-     */
     public boolean isProcessing() {
         return isProcessing;
     }
     
-    /**
-     * Get current global statistics
-     */
     public GlobalStats getGlobalStats() {
         return globalStats;
     }
     
-    /**
-     * Notify that processing has started
-     */
     private void notifyProcessingStarted(int totalFiles) {
         if (progressListener != null) {
-            SwingUtilities.invokeLater(() -> {
-                progressListener.onProcessingStarted(totalFiles);
-            });
+            SwingUtilities.invokeLater(() -> progressListener.onProcessingStarted(totalFiles));
         }
     }
     
-    /**
-     * Notify about an error
-     */
     private void notifyError(String fileName, String errorMessage) {
         if (progressListener != null) {
-            SwingUtilities.invokeLater(() -> {
-                progressListener.onError(fileName, errorMessage);
-            });
+            SwingUtilities.invokeLater(() -> progressListener.onError(fileName, errorMessage));
         }
     }
 }
