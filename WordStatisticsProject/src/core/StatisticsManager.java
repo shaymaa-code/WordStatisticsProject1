@@ -8,7 +8,6 @@ import model.FileStats;
 import model.GlobalStats;
 import gui.ProgressListener;
 import threading.ProcessingTask;
-import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletionService; // Added for the efficient solution
@@ -17,11 +16,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ExecutionException;// Added for the efficient solution
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 
 /**
- * Manages multithreaded processing of files and coordinates between components
+ * Manages multi-threaded processing of files and coordinates between components
  * This is the brain of the application
  * UPDATED: Uses ExecutorCompletionService to avoid creating unnecessary threads.
  */
