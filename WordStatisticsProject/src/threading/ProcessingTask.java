@@ -21,7 +21,7 @@ public class ProcessingTask implements Callable<FileStats> {
     private final FileProcessor fileProcessor;
     
     /**
-     * Constructor using File
+     * Constructor using File to path 
      */
     public ProcessingTask(File file, FileProcessor fileProcessor) {
         this.filePath = file.toPath();

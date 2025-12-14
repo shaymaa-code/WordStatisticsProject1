@@ -131,7 +131,7 @@ public class StatisticsManager {
                     }
                 }
                 
-                // All tasks finished
+                // All tasks finished, updates gui and prevents crash
                 SwingUtilities.invokeLater(() -> {
                     isProcessing = false;
                     if (progressListener != null) {
