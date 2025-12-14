@@ -9,6 +9,9 @@ import java.util.List;
 
 /**
  * Represents overall statistics for all processed files in the directory
+ * Aggregates totals for the entire directory. Key Concept: Synchronization. 
+ * Since multiple threads finish at different times, 
+ * we must protect this data so two threads don't write to it at the exact same nanosecond.
  */
 public class GlobalStats {
     private int totalFilesProcessed;
@@ -18,7 +21,7 @@ public class GlobalStats {
     private int totalYouCount;
     private String longestWordInDirectory;
     private String shortestWordInDirectory;
-    private List<FileStats> allFileStats;
+    private List<FileStats> allFileStats; // List to hold history of all files (optional, but good for reports)
     
     // Constructor
     public GlobalStats() {

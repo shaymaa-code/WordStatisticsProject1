@@ -5,7 +5,8 @@
 package model;
 
 /**
- * Represents statistics for a single text file
+ * Stores statistics for a single file
+ * Key Concept: Encapsulation. It keeps data private and exposes it via getters
  */
 public class FileStats {
     private String fileName;
@@ -34,7 +35,8 @@ public class FileStats {
         this("", "");
     }
     
-    // Getters and Setters
+    // Getters and Setters:
+    // Getters for the TableModel to read data
     public String getFileName() {
         return fileName;
     }
@@ -101,6 +103,7 @@ public class FileStats {
     
     /**
      * Updates all statistics at once (useful for threading)
+     * "Setter" to update everything at once (Cleaner than 6 separate calls)
      */
     public void updateStats(int wordCount, int isCount, int areCount, int youCount, 
                            String longestWord, String shortestWord) {
